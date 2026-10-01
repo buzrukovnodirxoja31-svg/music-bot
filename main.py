@@ -32,7 +32,9 @@ async def download_music(message: types.Message):
     query = message.text
     status_msg = await message.answer("🔍 Qo'shiq qidirilmoqda, biroz kuting...")
     
-    # FFmpeg talab qilmaydigan eng yaxshi audio format
+    # Yuklab olish uchun papka mavjudligini tekshirish va yaratish
+    os.makedirs("downloads", exist_ok=True)
+    
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': 'downloads/%(title)s.%(ext)s',
