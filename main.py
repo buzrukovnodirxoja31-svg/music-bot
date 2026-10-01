@@ -4,7 +4,6 @@ import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiohttp import web
-import yt_dlp
 
 logging.basicConfig(level=logging.INFO)
 
@@ -12,6 +11,15 @@ BOT_TOKEN = "8724351999:AAGmh0Bj7hee_Ki6sr8ferV92GD2d39jEBI"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+# Vaqtinchalik musiqa bazasi (Sarlavha/Xonanda va Telegram file_id)
+# Yangi qo'shiq qo'shish uchun shunchaki nomi va file_id sini kiritasiz
+MUSIC_DATABASE = {
+    "konsta": {
+        "title": "Konsta - Poyga",
+        "file_id": "CQACAgIAAxkBAAM1Z..." # Shu yerga Telegram'dagi mp3 fayl id'si qo'yiladi
+    }
+}
 
 # Render Web Service uchun port ochuvchi soxta server
 async def handle(request):
@@ -28,58 +36,51 @@ async def start_web_server():
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    await message.answer("Salom! 🎵\n\nMenga istalgan qo'shiq nomi yoki xonanda ismini yozing, men uni SoundCloud'dan topib yuboraman!")
+    await message.answer("Salom! 🎵\n\nMenga qo'shiq nomini yozing yoki audio fayl yuboring (file_id olish uchun)!")
 
+# Agar botga mp3/audio yuborsangiz, u sizga faylning file_id sini beradi (Adminlar uchun)
+@dp.message(F.audio)
+async def get_audio_file_id(message: types.Message):
+    file_id = message.audio.file_id
+    title = message.audio.title or "Noma'lum"
+    performer = message.audio.performer or "Noma'lum"
+    
+    await message.reply(
+        f"✅ MP3 fayl qabul qilindi!\n\n"
+        f"📌 **Sarlavha:** {performer} - {title}\n"
+        f"🔑 **file_id:**\n`{file_id}`\n\n"
+        f"_(Bu ID ni kodingizdagi MUSIC_DATABASE ga qo'shib qo'yasiz)_",
+        parse_mode="Markdown"
+    )
+
+# Qidiruv logikasi
 @dp.message(F.text)
-async def download_music(message: types.Message):
-    query = message.text
-    status_msg = await message.answer("🔍 SoundCloud'dan qo'shiq qidirilmoqda, biroz kuting...")
+async def search_music(message: types.Message):
+    query = message.text.lower().strip()
+    status_msg = await message.answer("🔍 Qidirilmoqda...")
     
-    download_dir = os.path.join(os.getcwd(), "downloads")
-    os.makedirs(download_dir, exist_ok=True)
-    
-    # SoundCloud orqali qidirish uchun sozlama (scsearch1:)
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
-        'quiet': True,
-        'no_warnings': True,
-        'default_search': 'scsearch1:',  # SoundCloud'dan qidirish kaliti
-        'nocheckcertificate': True,
-        'ignoreerrors': False,
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-    
-    downloaded_file = None
-    try:
-        loop = asyncio.get_event_loop()
-        
-        def download():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(query, download=True)
-                if 'entries' in info and len(info['entries']) > 0:
-                    info = info['entries'][0]
-                filename = ydl.prepare_filename(info)
-                return filename, info.get('title', 'Audio')
-
-        downloaded_file, title = await loop.run_in_executor(None, download)
-        
-        await status_msg.edit_text("⬆️ Qo'shiq yuklanmoqda...")
-        
-        audio = types.FSInputFile(downloaded_file)
-        await message.answer_audio(audio=audio, caption=f"🎵 {title}\n\n🤖 SoundCloud orqali yuklab olindi.")
-        await status_msg.delete()
-        
-    except Exception as e:
-        logging.error(f"Yuklab olishda xatolik: {e}")
-        await status_msg.edit_text("❌ Qo'shiq topilmadi yoki yuklab olishda xatolik yuz berdi. Iltimos, boshqa nom yozib ko'ring.")
-        
-    finally:
-        if downloaded_file and os.path.exists(downloaded_file):
+    found = False
+    for key, song in MUSIC_DATABASE.items():
+        if key in query or query in key:
             try:
-                os.remove(downloaded_file)
-            except Exception as cleanup_err:
-                logging.error(f"Faylni o'chirishda xatolik: {cleanup_err}")
+                # Faylni yuklamasdan, file_id orqali lahzada yuborish
+                await message.answer_audio(
+                    audio=song["file_id"],
+                    caption=f"🎵 {song['title']}\n\n🤖 Bot orqali uzatildi."
+                )
+                await status_msg.delete()
+                found = True
+                break
+            except Exception as e:
+                logging.error(f"Xatolik: {e}")
+                await status_msg.edit_text("❌ Faylni yuborishda xatolik yuz berdi.")
+                return
+
+    if not found:
+        await status_msg.edit_text(
+            "❌ Kechirasiz, bu qo'shiq bazadan topilmadi.\n\n"
+            "💡 Bazaga qo'shiq qo mef qo'shish uchun botga MP3 fayl yuboring va `file_id` sini oling."
+        )
 
 async def main():
     await start_web_server()
